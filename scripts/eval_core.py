@@ -18,13 +18,14 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+import collage
 from collage import NAMES, make_collage
 
 ROOT = Path(__file__).resolve().parent.parent
 SPLIT = ROOT / "dataset_split"
 NC = len(NAMES)
 PRED_FLOOR = 0.001
-IOU_THR = 0.5
+IOU_THR = 0.5  # default; run_evaluation(iou_thr=...) overrides it for the whole run
 MAX_DET = 100  # per image and class, as in COCO
 THRS = np.round(np.arange(1, 1001) / 1000, 3)
 SEED = 42
@@ -181,13 +182,18 @@ def fix_class_offset(gt, preds):
 
 
 # ---------------------------------------------------------------- full evaluation
-def run_evaluation(out, predict_split, hyper, recompute=False):
+def run_evaluation(out, predict_split, hyper, recompute=False, iou_thr=0.5, cache_dir=None):
+    """iou_thr: IoU used to match detections with labels everywhere (thresholds, metrics, confusion, collage colours).
+    cache_dir: where predictions_<split>.pkl live (they do not depend on the IoU), defaults to out."""
+    global IOU_THR
+    IOU_THR = collage.IOU_THR = iou_thr
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
+    cache_dir = Path(cache_dir) if cache_dir else out
     (out / "collages").mkdir(exist_ok=True)
     gt = {s: load_gt(s) for s in ("val", "test")}
     print("predicting val/test (cached if available)")
-    preds = {s: cached_predictions(out, s, gt[s], predict_split, recompute) for s in gt}
+    preds = {s: cached_predictions(cache_dir, s, gt[s], predict_split, recompute) for s in gt}
     off = fix_class_offset(gt["val"], preds["val"])
     for s in preds:
         preds[s] = {k: (b, sc, c + off) for k, (b, sc, c) in preds[s].items()}
@@ -252,10 +258,10 @@ def run_evaluation(out, predict_split, hyper, recompute=False):
 
     result = dict(umbral_por_clase={n: per[n]["threshold"] for n in NAMES}, por_clase=per,
                   global_macro=macro, global_micro_referencia=micro, bache=per["bache"],
-                  mAP50_global=macro["AP50"], hiperparametros=hyper,
+                  mAP50_global=macro["AP50"], iou_thr=iou_thr, hiperparametros=hyper,
                   notas=["AP50 estilo COCO (101 puntos) implementado a mano; pycocotools no esta instalado",
                          "umbral = mediana de la meseta de F1 maximo en val (barrido 0.001..1, paso 0.001)",
-                         "IoU 0.5; maximo 100 detecciones por imagen y clase"])
+                         f"IoU {iou_thr:g} para emparejar detecciones con labels (las claves AP50/mAP50 son el AP a ese IoU); maximo 100 detecciones por imagen y clase"])
     (out / "metrics_test.json").write_text(json.dumps(result, indent=2, ensure_ascii=False))
 
     # 4. collages

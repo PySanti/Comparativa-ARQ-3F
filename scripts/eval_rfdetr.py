@@ -15,14 +15,16 @@ from PIL import Image
 
 from eval_core import PRED_FLOOR, run_evaluation
 
+p = argparse.ArgumentParser()
+p.add_argument("--recompute", action="store_true", help="ignore cached predictions")
+p.add_argument("--iou", type=float, default=0.5, help="IoU to match detections and labels; != 0.5 writes to evaluacion_iou<value>/")
+args = p.parse_args()
+
 ROOT = Path(__file__).resolve().parent.parent
 RES = ROOT / "resultados" / "RF-DETR Medium"
 CKPT = RES / "checkpoint_best_total.pth"
-OUT = RES / "evaluacion"
-
-p = argparse.ArgumentParser()
-p.add_argument("--recompute", action="store_true", help="ignore cached predictions")
-args = p.parse_args()
+CACHE = RES / "evaluacion"  # predictions are shared by every IoU
+OUT = CACHE if args.iou == 0.5 else RES / f"evaluacion_iou{args.iou:g}"
 
 _model = None  # loaded lazily so cached predictions need no GPU
 
@@ -60,4 +62,4 @@ def hyperparameters():
 
 
 if __name__ == "__main__":
-    run_evaluation(OUT, predict_split, hyperparameters(), recompute=args.recompute)
+    run_evaluation(OUT, predict_split, hyperparameters(), recompute=args.recompute, iou_thr=args.iou, cache_dir=CACHE)
